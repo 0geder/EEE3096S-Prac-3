@@ -21,7 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+// --- ADDED FOR BENCHMARKING ---
+#include <stdint.h> // Required for specific integer types like uint64_t
+// --- END OF ADDED CODE ---
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,6 +47,23 @@
 //TODO: Define variables you think you might need
 // - Performance timing variables (e.g execution time, throughput, pixels per second, clock cycles)
 
+// --- ADDED FOR BENCHMARKING ---
+// Arrays defining the parameters for our benchmark matrix
+const int image_sizes[5] = {128, 160, 192, 224, 256};
+const int max_iter_values[5] = {100, 250, 500, 750, 1000};
+
+// 2D arrays to store the results of the FIXED-POINT calculations
+// The structure is: results[image_size_index][max_iter_index]
+uint32_t fixed_point_times[5][5];
+uint64_t fixed_point_checksums[5][5];
+
+// 2D arrays to store the results of the DOUBLE-PRECISION calculations
+uint32_t double_times[5][5];
+uint64_t double_checksums[5][5];
+
+// Volatile variable to prevent the compiler from optimizing away our test loop
+volatile int all_benchmarks_complete = 0;
+// --- END OF ADDED CODE ---
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -53,6 +72,11 @@ static void MX_GPIO_Init(void);
 /* USER CODE BEGIN PFP */
 //TODO: Define any function prototypes you might need such as the calculate Mandelbrot function among others
 
+// --- ADDED FOR BENCHMARKING ---
+// Function prototypes for the Mandelbrot algorithms
+uint64_t calculate_mandelbrot_fixed_point(int width, int height, int max_iterations);
+uint64_t calculate_mandelbrot_double(int width, int height, int max_iterations);
+// --- END OF ADDED CODE ---
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -66,7 +90,6 @@ static void MX_GPIO_Init(void);
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -91,6 +114,42 @@ int main(void)
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
 
+  // --- ADDED FOR BENCHMARKING ---
+  // This main loop will run only ONCE to perform the benchmark.
+  // We will use nested loops to test every combination of size and iteration count.
+
+  // Visual indicator: Turn on an LED to signal processing start
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+
+  // Outer loop: Iterate through image sizes
+  for (int i = 0; i < 5; i++) {
+	  int current_size = image_sizes[i];
+
+	  // Inner loop: Iterate through MAX_ITER values
+	  for (int j = 0; j < 5; j++) {
+		  int current_max_iter = max_iter_values[j];
+		  uint32_t start_time, end_time;
+
+		  // --- Run Fixed-Point Test ---
+		  start_time = HAL_GetTick();
+		  fixed_point_checksums[i][j] = calculate_mandelbrot_fixed_point(current_size, current_size, current_max_iter);
+		  end_time = HAL_GetTick();
+		  fixed_point_times[i][j] = end_time - start_time;
+
+		  // --- Run Double-Precision Test ---
+		  start_time = HAL_GetTick();
+		  double_checksums[i][j] = calculate_mandelbrot_double(current_size, current_size, current_max_iter);
+		  end_time = HAL_GetTick();
+		  double_times[i][j] = end_time - start_time;
+	  }
+  }
+
+  // Visual indicator: Turn on another LED to signal processing end
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+
+  // Set a flag to indicate all tests are done. We can set a breakpoint here.
+  all_benchmarks_complete = 1;
+  // --- END OF ADDED CODE ---
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -101,17 +160,16 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  //TODO: Visual indicator: Turn on LED0 to signal processing start
-
-
 	  //TODO: Benchmark and Profile Performance
-
-
 	  //TODO: Visual indicator: Turn on LED1 to signal processing start
-
-
 	  //TODO: Keep the LEDs ON for 2s
-
 	  //TODO: Turn OFF LEDs
+
+	  // --- ADDED FOR BENCHMARKING ---
+	  // After benchmarks are done, just sit in this loop.
+	  // The LEDs will remain on to show completion.
+	  // You can pause the debugger at any time now.
+	  // --- END OF ADDED CODE ---
   }
   /* USER CODE END 3 */
 }
@@ -200,6 +258,63 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 //TODO: Function signatures you defined previously , implement them here
 
+// --- ADDED FOR BENCHMARKING ---
+// The Mandelbrot implementations are identical to the STM32F0 version.
+// The performance difference comes from the hardware, not the C code itself.
+
+// This is the fixed-point implementation.
+uint64_t calculate_mandelbrot_fixed_point(int width, int height, int max_iterations){
+    uint64_t mandelbrot_sum = 0;
+    const int64_t SCALE = 1000000;
+    const int64_t LIMIT = 4 * SCALE * SCALE;
+
+    for (int y = 0; y < height; y++){
+      for (int x = 0; x < width; x++){
+            int64_t c_real = ((int64_t)x * 3500000) / width - 2500000;
+            int64_t c_imag = ((int64_t)y * 2000000) / height - 1000000;
+            int64_t z_real = 0;
+            int64_t z_imag = 0;
+            int iteration = 0;
+            while (iteration < max_iterations) {
+                int64_t z_real_sq = z_real * z_real;
+                int64_t z_imag_sq = z_imag * z_imag;
+                if ((z_real_sq + z_imag_sq) > LIMIT) {
+                    break;
+                }
+                int64_t z_imag_new = (2 * z_real * z_imag) / SCALE + c_imag;
+                int64_t z_real_new = (z_real_sq - z_imag_sq) / SCALE + c_real;
+                z_real = z_real_new;
+                z_imag = z_imag_new;
+                iteration++;
+            }
+            mandelbrot_sum += iteration;
+        }
+    }
+    return mandelbrot_sum;
+}
+
+// This is the double-precision implementation.
+uint64_t calculate_mandelbrot_double(int width, int height, int max_iterations){
+    uint64_t mandelbrot_sum = 0;
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            double c_real = ((double)x / width) * 3.5 - 2.5;
+            double c_imag = ((double)y / height) * 2.0 - 1.0;
+            double z_real = 0.0;
+            double z_imag = 0.0;
+            int iteration = 0;
+            while (iteration < max_iterations && (z_real * z_real + z_imag * z_imag) <= 4.0) {
+                double z_real_new = z_real * z_real - z_imag * z_imag + c_real;
+                z_imag = 2 * z_real * z_imag + c_imag;
+                z_real = z_real_new;
+                iteration++;
+            }
+            mandelbrot_sum += iteration;
+        }
+    }
+    return mandelbrot_sum;
+}
+// --- END OF ADDED CODE ---
 /* USER CODE END 4 */
 
 /**
